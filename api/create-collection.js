@@ -1,4 +1,5 @@
-// Fichier à créer : api/create-collection.js
+// Fichier : api/create-collection.js
+// Version adaptée pour les webhooks Shopify natifs
 
 export default async function handler(req, res) {
   // Vérifier que c'est une requête POST
@@ -7,42 +8,69 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { company_name, tag_condition, customer_id } = req.body;
+    // Les données viennent directement du webhook Shopify
+    const customer = req.body;
+    
+    console.log('Webhook reçu pour le client:', customer.email);
+    console.log('Note du client:', customer.note);
 
-    if (!company_name || !tag_condition) {
-      return res.status(400).json({ 
-        error: 'company_name et tag_condition sont requis' 
+    // Vérifier si la note contient "Entreprise:"
+    if (!customer.note || !customer.note.includes("Entreprise:")) {
+      console.log('Pas d\'entreprise trouvée dans la note');
+      return res.status(200).json({ 
+        message: 'Pas d\'entreprise dans la note du client',
+        skipped: true
       });
     }
 
+    // Extraire le nom de l'entreprise
+    const entreprisePart = customer.note.split("Entreprise:")[1];
+    const companyName = entreprisePart ? entreprisePart.trim() : "";
+
+    if (!companyName) {
+      console.log('Nom d\'entreprise vide');
+      return res.status(200).json({ 
+        message: 'Nom d\'entreprise vide',
+        skipped: true
+      });
+    }
+
+    console.log('Entreprise trouvée:', companyName);
+
     // Configuration de l'API Shopify
-    const SHOPIFY_SHOP_DOMAIN = process.env.SHOPIFY_SHOP_DOMAIN; // votre-shop.myshopify.com
-    const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN; // votre token d'accès
+    const SHOPIFY_SHOP_DOMAIN = process.env.SHOPIFY_SHOP_DOMAIN;
+    const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 
     if (!SHOPIFY_SHOP_DOMAIN || !SHOPIFY_ACCESS_TOKEN) {
+      console.error('Configuration Shopify manquante');
       return res.status(500).json({ 
         error: 'Configuration Shopify manquante' 
       });
     }
 
+    // Créer le tag pour la collection
+    const tagCondition = `pro+${companyName.toLowerCase().replace(/\s+/g, '')}`;
+
     // Préparer les données de la collection
     const collectionData = {
       collection: {
-        title: company_name,
+        title: companyName,
         rules: [
           {
             column: 'tag',
             relation: 'equals',
-            condition: tag_condition
+            condition: tagCondition
           }
         ],
         sort_order: 'best-selling'
       }
     };
 
+    console.log('Création de la collection:', companyName, 'avec tag:', tagCondition);
+
     // Appel à l'API Shopify pour créer la collection
     const shopifyResponse = await fetch(
-      `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2023-10/collections.json`,
+      `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-07/collections.json`,
       {
         method: 'POST',
         headers: {
@@ -64,12 +92,15 @@ export default async function handler(req, res) {
 
     const result = await shopifyResponse.json();
     
+    console.log('Collection créée avec succès:', result.collection.id);
+    
     return res.status(200).json({
       success: true,
-      message: `Collection "${company_name}" créée avec succès`,
+      message: `Collection "${companyName}" créée avec succès`,
       collection_id: result.collection.id,
       collection_handle: result.collection.handle,
-      tag_condition: tag_condition
+      tag_condition: tagCondition,
+      customer_email: customer.email
     });
 
   } catch (error) {
