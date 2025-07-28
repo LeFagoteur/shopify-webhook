@@ -30,7 +30,6 @@ export default async function handler(req, res) {
 
     console.log('Entreprise trouvée:', companyName);
 
-    // Configuration avec token d'accès direct
     const SHOPIFY_SHOP_DOMAIN = process.env.SHOPIFY_SHOP_DOMAIN;
     const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 
@@ -43,37 +42,56 @@ export default async function handler(req, res) {
 
     const tagCondition = `pro+${companyName.toLowerCase().replace(/\s+/g, '')}`;
 
-    const collectionData = {
-      collection: {
-        title: companyName,
-        rules: [
-          {
-            column: 'tag',
-            relation: 'equals',
-            condition: tagCondition
+    // Requête GraphQL pour créer une collection
+    const graphqlQuery = {
+      query: `
+        mutation collectionCreate($input: CollectionInput!) {
+          collectionCreate(input: $input) {
+            collection {
+              id
+              handle
+              title
+            }
+            userErrors {
+              field
+              message
+            }
           }
-        ],
-        sort_order: 'best-selling'
+        }
+      `,
+      variables: {
+        input: {
+          title: companyName,
+          ruleSet: {
+            appliedDisjunctively: false,
+            rules: [
+              {
+                column: "TAG",
+                relation: "EQUALS",
+                condition: tagCondition
+              }
+            ]
+          }
+        }
       }
     };
 
-    console.log('Payload envoyé à Shopify:', JSON.stringify(collectionData, null, 2));
+    console.log('Requête GraphQL:', JSON.stringify(graphqlQuery, null, 2));
 
-    // Utilisation du token d'accès standard
+    // Appel à l'API GraphQL
     const shopifyResponse = await fetch(
-      `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/collections.json`,
+      `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/graphql.json`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
         },
-        body: JSON.stringify(collectionData)
+        body: JSON.stringify(graphqlQuery)
       }
     );
 
     console.log('Status de la réponse Shopify:', shopifyResponse.status);
-    console.log('Headers de la réponse:', Object.fromEntries(shopifyResponse.headers.entries()));
 
     if (!shopifyResponse.ok) {
       const errorText = await shopifyResponse.text();
@@ -86,29 +104,51 @@ export default async function handler(req, res) {
     }
 
     const responseText = await shopifyResponse.text();
-    console.log('Réponse brute Shopify:', responseText);
+    console.log('Réponse GraphQL complète:', responseText);
     
     let result;
     try {
       result = JSON.parse(responseText);
     } catch (parseError) {
       console.error('Erreur de parsing JSON:', parseError);
-      console.error('Contenu reçu:', responseText);
       return res.status(500).json({
         error: 'Réponse Shopify invalide',
         response: responseText
       });
     }
-    
-    console.log('Collection créée avec succès:', result.collection.id);
-    
-    return res.status(200).json({
-      success: true,
-      message: `Collection "${companyName}" créée avec succès`,
-      collection_id: result.collection.id,
-      collection_handle: result.collection.handle,
-      tag_condition: tagCondition,
-      customer_email: customer.email
+
+    // Vérifier les erreurs GraphQL
+    if (result.data && result.data.collectionCreate) {
+      const { collection, userErrors } = result.data.collectionCreate;
+      
+      if (userErrors && userErrors.length > 0) {
+        console.error('Erreurs utilisateur GraphQL:', userErrors);
+        return res.status(400).json({
+          error: 'Erreurs lors de la création',
+          userErrors: userErrors
+        });
+      }
+
+      if (collection) {
+        console.log('Collection créée avec succès via GraphQL:', collection.id);
+        
+        return res.status(200).json({
+          success: true,
+          message: `Collection "${companyName}" créée avec succès`,
+          collection_id: collection.id,
+          collection_handle: collection.handle,
+          tag_condition: tagCondition,
+          customer_email: customer.email,
+          method: 'GraphQL'
+        });
+      }
+    }
+
+    // Si on arrive ici, il y a eu un problème
+    console.error('Réponse GraphQL inattendue:', result);
+    return res.status(500).json({
+      error: 'Réponse GraphQL inattendue',
+      response: result
     });
 
   } catch (error) {
