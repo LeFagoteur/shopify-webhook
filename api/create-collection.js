@@ -1,20 +1,14 @@
-// Fichier : api/create-collection.js
-// Version adaptée pour les webhooks Shopify natifs
-
 export default async function handler(req, res) {
-  // Vérifier que c'est une requête POST
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    // Les données viennent directement du webhook Shopify
     const customer = req.body;
     
     console.log('Webhook reçu pour le client:', customer.email);
     console.log('Note du client:', customer.note);
 
-    // Vérifier si la note contient "Entreprise:"
     if (!customer.note || !customer.note.includes("Entreprise:")) {
       console.log('Pas d\'entreprise trouvée dans la note');
       return res.status(200).json({ 
@@ -23,7 +17,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // Extraire le nom de l'entreprise
     const entreprisePart = customer.note.split("Entreprise:")[1];
     const companyName = entreprisePart ? entreprisePart.trim() : "";
 
@@ -37,21 +30,20 @@ export default async function handler(req, res) {
 
     console.log('Entreprise trouvée:', companyName);
 
-    // Configuration de l'API Shopify
+    // Configuration avec API Key et Secret
     const SHOPIFY_SHOP_DOMAIN = process.env.SHOPIFY_SHOP_DOMAIN;
-    const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+    const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
+    const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
 
-    if (!SHOPIFY_SHOP_DOMAIN || !SHOPIFY_ACCESS_TOKEN) {
+    if (!SHOPIFY_SHOP_DOMAIN || !SHOPIFY_API_KEY || !SHOPIFY_API_SECRET) {
       console.error('Configuration Shopify manquante');
       return res.status(500).json({ 
         error: 'Configuration Shopify manquante' 
       });
     }
 
-    // Créer le tag pour la collection
     const tagCondition = `pro+${companyName.toLowerCase().replace(/\s+/g, '')}`;
 
-    // Préparer les données de la collection
     const collectionData = {
       collection: {
         title: companyName,
@@ -68,14 +60,16 @@ export default async function handler(req, res) {
 
     console.log('Création de la collection:', companyName, 'avec tag:', tagCondition);
 
-    // Appel à l'API Shopify pour créer la collection
+    // Test avec authentification Basic (API Key + Secret)
+    const credentials = btoa(`${SHOPIFY_API_KEY}:${SHOPIFY_API_SECRET}`);
+    
     const shopifyResponse = await fetch(
-      ``https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/shop.json`,
+      `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/collections.json`,
       {
-        method: 'GET',
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
+          'Authorization': `Basic ${credentials}`
         },
         body: JSON.stringify(collectionData)
       }
