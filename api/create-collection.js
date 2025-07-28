@@ -57,7 +57,7 @@ export default async function handler(req, res) {
       }
     };
 
-    console.log('Création de la collection:', companyName, 'avec tag:', tagCondition);
+    console.log('Payload envoyé à Shopify:', JSON.stringify(collectionData, null, 2));
 
     // Utilisation du token d'accès standard
     const shopifyResponse = await fetch(
