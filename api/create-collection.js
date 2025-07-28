@@ -40,7 +40,7 @@ export default async function handler(req, res) {
       });
     }
 
-    const tagCondition = `pro+${companyName.toLowerCase().replace(/\s+/g, '')}`;
+    const tagCondition = `pro${companyName.toLowerCase().replace(/\s+/g, '')}`;
 
     // Requête GraphQL pour créer une collection
     const graphqlQuery = {
