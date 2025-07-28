@@ -62,7 +62,6 @@ export default async function handler(req, res) {
       variables: {
         input: {
           title: companyName,
-          published: true,
           ruleSet: {
             appliedDisjunctively: false,
             rules: [
@@ -133,9 +132,64 @@ export default async function handler(req, res) {
       if (collection) {
         console.log('Collection créée avec succès via GraphQL:', collection.id);
         
+        // Publier la collection après création
+        const publishQuery = {
+          query: `
+            mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
+              publishablePublish(id: $id, input: $input) {
+                publishable {
+                  id
+                }
+                userErrors {
+                  field
+                  message
+                }
+              }
+            }
+          `,
+          variables: {
+            id: collection.id,
+            input: [
+              {
+                publicationId: "gid://shopify/Publication/1" // ID du canal "Online Store"
+              }
+            ]
+          }
+        };
+
+        console.log('Publication de la collection...');
+        
+        const publishResponse = await fetch(
+          `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/graphql.json`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
+            },
+            body: JSON.stringify(publishQuery)
+          }
+        );
+
+        if (publishResponse.ok) {
+          const publishResult = await publishResponse.json();
+          console.log('Résultat publication:', publishResult);
+          
+          if (publishResult.data && publishResult.data.publishablePublish) {
+            const { userErrors } = publishResult.data.publishablePublish;
+            if (userErrors && userErrors.length > 0) {
+              console.warn('Erreurs lors de la publication:', userErrors);
+            } else {
+              console.log('Collection publiée avec succès !');
+            }
+          }
+        } else {
+          console.warn('Erreur lors de la publication:', await publishResponse.text());
+        }
+        
         return res.status(200).json({
           success: true,
-          message: `Collection "${companyName}" créée avec succès`,
+          message: `Collection "${companyName}" créée et publiée avec succès`,
           collection_id: collection.id,
           collection_handle: collection.handle,
           tag_condition: tagCondition,
