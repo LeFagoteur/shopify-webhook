@@ -75,16 +75,33 @@ export default async function handler(req, res) {
       }
     );
 
+    console.log('Status de la réponse Shopify:', shopifyResponse.status);
+    console.log('Headers de la réponse:', Object.fromEntries(shopifyResponse.headers.entries()));
+
     if (!shopifyResponse.ok) {
-      const errorData = await shopifyResponse.json();
-      console.error('Erreur Shopify:', errorData);
+      const errorText = await shopifyResponse.text();
+      console.error('Erreur Shopify (status:', shopifyResponse.status, '):', errorText);
       return res.status(400).json({ 
         error: 'Erreur lors de la création de la collection',
-        details: errorData
+        status: shopifyResponse.status,
+        details: errorText
       });
     }
 
-    const result = await shopifyResponse.json();
+    const responseText = await shopifyResponse.text();
+    console.log('Réponse brute Shopify:', responseText);
+    
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('Erreur de parsing JSON:', parseError);
+      console.error('Contenu reçu:', responseText);
+      return res.status(500).json({
+        error: 'Réponse Shopify invalide',
+        response: responseText
+      });
+    }
     
     console.log('Collection créée avec succès:', result.collection.id);
     
