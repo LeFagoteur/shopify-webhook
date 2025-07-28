@@ -62,6 +62,7 @@ export default async function handler(req, res) {
       variables: {
         input: {
           title: companyName,
+          published: true,
           ruleSet: {
             appliedDisjunctively: false,
             rules: [
