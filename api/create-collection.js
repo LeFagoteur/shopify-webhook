@@ -30,12 +30,11 @@ export default async function handler(req, res) {
 
     console.log('Entreprise trouvée:', companyName);
 
-    // Configuration avec API Key et Secret
+    // Configuration avec token d'accès direct
     const SHOPIFY_SHOP_DOMAIN = process.env.SHOPIFY_SHOP_DOMAIN;
-    const SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
-    const SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
+    const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 
-    if (!SHOPIFY_SHOP_DOMAIN || !SHOPIFY_API_KEY || !SHOPIFY_API_SECRET) {
+    if (!SHOPIFY_SHOP_DOMAIN || !SHOPIFY_ACCESS_TOKEN) {
       console.error('Configuration Shopify manquante');
       return res.status(500).json({ 
         error: 'Configuration Shopify manquante' 
@@ -60,16 +59,14 @@ export default async function handler(req, res) {
 
     console.log('Création de la collection:', companyName, 'avec tag:', tagCondition);
 
-    // Test avec authentification Basic (API Key + Secret)
-    const credentials = btoa(`${SHOPIFY_API_KEY}:${SHOPIFY_API_SECRET}`);
-    
+    // Utilisation du token d'accès standard
     const shopifyResponse = await fetch(
       `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/collections.json`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Basic ${credentials}`
+          'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
         },
         body: JSON.stringify(collectionData)
       }
