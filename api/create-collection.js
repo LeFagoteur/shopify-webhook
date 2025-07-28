@@ -132,7 +132,74 @@ export default async function handler(req, res) {
       if (collection) {
         console.log('Collection créée avec succès via GraphQL:', collection.id);
         
-        // Publier la collection après création
+        // D'abord, récupérer les publications disponibles
+        const publicationsQuery = {
+          query: `
+            query {
+              publications(first: 10) {
+                edges {
+                  node {
+                    id
+                    name
+                  }
+                }
+              }
+            }
+          `
+        };
+
+        console.log('Récupération des publications...');
+        
+        const pubResponse = await fetch(
+          `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/graphql.json`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
+            },
+            body: JSON.stringify(publicationsQuery)
+          }
+        );
+
+        let onlineStoreId = null;
+        
+        if (pubResponse.ok) {
+          const pubResult = await pubResponse.json();
+          console.log('Publications disponibles:', JSON.stringify(pubResult, null, 2));
+          
+          if (pubResult.data && pubResult.data.publications) {
+            // Chercher "Online Store" ou équivalent français
+            const onlineStore = pubResult.data.publications.edges.find(edge => 
+              edge.node.name.includes('Online Store') || 
+              edge.node.name.includes('Boutique en ligne') ||
+              edge.node.name.includes('Web')
+            );
+            
+            if (onlineStore) {
+              onlineStoreId = onlineStore.node.id;
+              console.log('ID Online Store trouvé:', onlineStoreId);
+            } else {
+              console.log('Online Store non trouvé, utilisation du premier canal disponible');
+              onlineStoreId = pubResult.data.publications.edges[0]?.node.id;
+            }
+          }
+        }
+
+        if (!onlineStoreId) {
+          console.warn('Impossible de trouver un canal de publication, collection créée mais non publiée');
+          return res.status(200).json({
+            success: true,
+            message: `Collection "${companyName}" créée (non publiée automatiquement)`,
+            collection_id: collection.id,
+            collection_handle: collection.handle,
+            tag_condition: tagCondition,
+            customer_email: customer.email,
+            method: 'GraphQL'
+          });
+        }
+        
+        // Publier la collection avec le bon ID
         const publishQuery = {
           query: `
             mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
@@ -151,13 +218,13 @@ export default async function handler(req, res) {
             id: collection.id,
             input: [
               {
-                publicationId: "gid://shopify/Publication/1" // ID du canal "Online Store"
+                publicationId: onlineStoreId
               }
             ]
           }
         };
 
-        console.log('Publication de la collection...');
+        console.log('Publication de la collection avec ID:', onlineStoreId);
         
         const publishResponse = await fetch(
           `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/graphql.json`,
@@ -173,7 +240,7 @@ export default async function handler(req, res) {
 
         if (publishResponse.ok) {
           const publishResult = await publishResponse.json();
-          console.log('Résultat publication:', publishResult);
+          console.log('Résultat publication:', JSON.stringify(publishResult, null, 2));
           
           if (publishResult.data && publishResult.data.publishablePublish) {
             const { userErrors } = publishResult.data.publishablePublish;
