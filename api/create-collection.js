@@ -70,9 +70,9 @@ export default async function handler(req, res) {
 
     // Appel à l'API Shopify pour créer la collection
     const shopifyResponse = await fetch(
-      `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/collections.json`,
+      ``https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/shop.json`,
       {
-        method: 'POST',
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json',
           'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
