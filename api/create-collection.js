@@ -42,7 +42,7 @@ export default async function handler(req, res) {
 
     const tagCondition = `pro${companyName.toLowerCase().replace(/\s+/g, '')}`;
 
-    // Requête GraphQL pour créer une collection
+    // Requête GraphQL pour créer une collection (celle qui marchait !)
     const graphqlQuery = {
       query: `
         mutation collectionCreate($input: CollectionInput!) {
@@ -78,7 +78,7 @@ export default async function handler(req, res) {
 
     console.log('Requête GraphQL:', JSON.stringify(graphqlQuery, null, 2));
 
-    // Appel à l'API GraphQL
+    // Appel à l'API GraphQL (celui qui marchait)
     const shopifyResponse = await fetch(
       `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/graphql.json`,
       {
@@ -132,136 +132,15 @@ export default async function handler(req, res) {
       if (collection) {
         console.log('Collection créée avec succès via GraphQL:', collection.id);
         
-        // D'abord, récupérer les publications disponibles
-        const publicationsQuery = {
-          query: `
-            query {
-              publications(first: 10) {
-                edges {
-                  node {
-                    id
-                    name
-                  }
-                }
-              }
-            }
-          `
-        };
-
-        console.log('Récupération des publications...');
-        
-        const pubResponse = await fetch(
-          `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/graphql.json`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
-            },
-            body: JSON.stringify(publicationsQuery)
-          }
-        );
-
-        let onlineStoreId = null;
-        
-        if (pubResponse.ok) {
-          const pubResult = await pubResponse.json();
-          console.log('Publications disponibles:', JSON.stringify(pubResult, null, 2));
-          
-          if (pubResult.data && pubResult.data.publications) {
-            // Chercher "Online Store" ou équivalent français
-            const onlineStore = pubResult.data.publications.edges.find(edge => 
-              edge.node.name.includes('Online Store') || 
-              edge.node.name.includes('Boutique en ligne') ||
-              edge.node.name.includes('Web')
-            );
-            
-            if (onlineStore) {
-              onlineStoreId = onlineStore.node.id;
-              console.log('ID Online Store trouvé:', onlineStoreId);
-            } else {
-              console.log('Online Store non trouvé, utilisation du premier canal disponible');
-              onlineStoreId = pubResult.data.publications.edges[0]?.node.id;
-            }
-          }
-        }
-
-        if (!onlineStoreId) {
-          console.warn('Impossible de trouver un canal de publication, collection créée mais non publiée');
-          return res.status(200).json({
-            success: true,
-            message: `Collection "${companyName}" créée (non publiée automatiquement)`,
-            collection_id: collection.id,
-            collection_handle: collection.handle,
-            tag_condition: tagCondition,
-            customer_email: customer.email,
-            method: 'GraphQL'
-          });
-        }
-        
-        // Publier la collection avec le bon ID
-        const publishQuery = {
-          query: `
-            mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
-              publishablePublish(id: $id, input: $input) {
-                publishable {
-                  id
-                }
-                userErrors {
-                  field
-                  message
-                }
-              }
-            }
-          `,
-          variables: {
-            id: collection.id,
-            input: [
-              {
-                publicationId: onlineStoreId
-              }
-            ]
-          }
-        };
-
-        console.log('Publication de la collection avec ID:', onlineStoreId);
-        
-        const publishResponse = await fetch(
-          `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/graphql.json`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
-            },
-            body: JSON.stringify(publishQuery)
-          }
-        );
-
-        if (publishResponse.ok) {
-          const publishResult = await publishResponse.json();
-          console.log('Résultat publication:', JSON.stringify(publishResult, null, 2));
-          
-          if (publishResult.data && publishResult.data.publishablePublish) {
-            const { userErrors } = publishResult.data.publishablePublish;
-            if (userErrors && userErrors.length > 0) {
-              console.warn('Erreurs lors de la publication:', userErrors);
-            } else {
-              console.log('Collection publiée avec succès !');
-            }
-          }
-        } else {
-          console.warn('Erreur lors de la publication:', await publishResponse.text());
-        }
-        
         return res.status(200).json({
           success: true,
-          message: `Collection "${companyName}" créée et publiée avec succès`,
+          message: `Collection "${companyName}" créée avec succès`,
           collection_id: collection.id,
           collection_handle: collection.handle,
           tag_condition: tagCondition,
           customer_email: customer.email,
-          method: 'GraphQL'
+          method: 'GraphQL',
+          note: 'Collection créée mais non publiée automatiquement'
         });
       }
     }
