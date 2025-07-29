@@ -132,15 +132,73 @@ export default async function handler(req, res) {
       if (collection) {
         console.log('Collection créée avec succès via GraphQL:', collection.id);
         
+        // Publication avec ID hardcodé (évite read_publications)
+        const publishQuery = {
+          query: `
+            mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
+              publishablePublish(id: $id, input: $input) {
+                publishable {
+                  id
+                }
+                userErrors {
+                  field
+                  message
+                }
+              }
+            }
+          `,
+          variables: {
+            id: collection.id,
+            input: [
+              {
+                publicationId: "gid://shopify/Publication/1"
+              }
+            ]
+          }
+        };
+
+        console.log('Tentative de publication...');
+
+        try {
+          const publishResponse = await fetch(
+            `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/graphql.json`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
+              },
+              body: JSON.stringify(publishQuery)
+            }
+          );
+
+          if (publishResponse.ok) {
+            const publishResult = await publishResponse.json();
+            console.log('Résultat publication:', JSON.stringify(publishResult, null, 2));
+            
+            if (publishResult.data && publishResult.data.publishablePublish) {
+              const { userErrors } = publishResult.data.publishablePublish;
+              if (userErrors && userErrors.length > 0) {
+                console.warn('Erreurs lors de la publication:', userErrors);
+              } else {
+                console.log('Collection publiée avec succès !');
+              }
+            }
+          } else {
+            console.warn('Erreur HTTP lors de la publication:', publishResponse.status);
+          }
+        } catch (publishError) {
+          console.warn('Erreur lors de la publication:', publishError.message);
+        }
+        
         return res.status(200).json({
           success: true,
-          message: `Collection "${companyName}" créée avec succès`,
+          message: `Collection "${companyName}" créée et publication tentée`,
           collection_id: collection.id,
           collection_handle: collection.handle,
           tag_condition: tagCondition,
           customer_email: customer.email,
-          method: 'GraphQL',
-          note: 'Collection créée mais non publiée automatiquement'
+          method: 'GraphQL'
         });
       }
     }
