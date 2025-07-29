@@ -132,14 +132,11 @@ export default async function handler(req, res) {
       if (collection) {
         console.log('Collection créée avec succès via GraphQL:', collection.id);
         
-        // Publication avec ID hardcodé (évite read_publications)
+        // Publication avec ID hardcodé (requête GraphQL corrigée)
         const publishQuery = {
           query: `
             mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
               publishablePublish(id: $id, input: $input) {
-                publishable {
-                  id
-                }
                 userErrors {
                   field
                   message
