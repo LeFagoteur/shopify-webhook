@@ -42,52 +42,34 @@ export default async function handler(req, res) {
 
     const tagCondition = `pro${companyName.toLowerCase().replace(/\s+/g, '')}`;
 
-    // Requête GraphQL pour créer une collection (celle qui marchait !)
-    const graphqlQuery = {
-      query: `
-        mutation collectionCreate($input: CollectionInput!) {
-          collectionCreate(input: $input) {
-            collection {
-              id
-              handle
-              title
-            }
-            userErrors {
-              field
-              message
-            }
+    // APPROCHE 1: API REST Smart Collection avec publication directe
+    const collectionData = {
+      smart_collection: {
+        title: companyName,
+        rules: [
+          {
+            column: 'tag',
+            relation: 'equals',
+            condition: tagCondition
           }
-        }
-      `,
-      variables: {
-        input: {
-          title: companyName,
-          ruleSet: {
-            appliedDisjunctively: false,
-            rules: [
-              {
-                column: "TAG",
-                relation: "EQUALS",
-                condition: tagCondition
-              }
-            ]
-          }
-        }
+        ],
+        published: true,  // Publication directe !
+        published_scope: 'web'  // Publier sur le web
       }
     };
 
-    console.log('Requête GraphQL:', JSON.stringify(graphqlQuery, null, 2));
+    console.log('Création collection REST avec publication:', JSON.stringify(collectionData, null, 2));
 
-    // Appel à l'API GraphQL (celui qui marchait)
+    // Appel à l'API REST Smart Collections
     const shopifyResponse = await fetch(
-      `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/graphql.json`,
+      `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/smart_collections.json`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
         },
-        body: JSON.stringify(graphqlQuery)
+        body: JSON.stringify(collectionData)
       }
     );
 
@@ -96,114 +78,34 @@ export default async function handler(req, res) {
     if (!shopifyResponse.ok) {
       const errorText = await shopifyResponse.text();
       console.error('Erreur Shopify (status:', shopifyResponse.status, '):', errorText);
-      return res.status(400).json({ 
-        error: 'Erreur lors de la création de la collection',
-        status: shopifyResponse.status,
-        details: errorText
-      });
-    }
-
-    const responseText = await shopifyResponse.text();
-    console.log('Réponse GraphQL complète:', responseText);
-    
-    let result;
-    try {
-      result = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('Erreur de parsing JSON:', parseError);
-      return res.status(500).json({
-        error: 'Réponse Shopify invalide',
-        response: responseText
-      });
-    }
-
-    // Vérifier les erreurs GraphQL
-    if (result.data && result.data.collectionCreate) {
-      const { collection, userErrors } = result.data.collectionCreate;
       
-      if (userErrors && userErrors.length > 0) {
-        console.error('Erreurs utilisateur GraphQL:', userErrors);
-        return res.status(400).json({
-          error: 'Erreurs lors de la création',
-          userErrors: userErrors
-        });
-      }
-
-      if (collection) {
-        console.log('Collection créée avec succès via GraphQL:', collection.id);
-        
-        // Publication avec ID hardcodé (requête GraphQL corrigée)
-        const publishQuery = {
-          query: `
-            mutation publishablePublish($id: ID!, $input: [PublicationInput!]!) {
-              publishablePublish(id: $id, input: $input) {
-                userErrors {
-                  field
-                  message
-                }
-              }
-            }
-          `,
-          variables: {
-            id: collection.id,
-            input: [
-              {
-                publicationId: "gid://shopify/Publication/1"
-              }
-            ]
-          }
-        };
-
-        console.log('Tentative de publication...');
-
-        try {
-          const publishResponse = await fetch(
-            `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/graphql.json`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
-              },
-              body: JSON.stringify(publishQuery)
-            }
-          );
-
-          if (publishResponse.ok) {
-            const publishResult = await publishResponse.json();
-            console.log('Résultat publication:', JSON.stringify(publishResult, null, 2));
-            
-            if (publishResult.data && publishResult.data.publishablePublish) {
-              const { userErrors } = publishResult.data.publishablePublish;
-              if (userErrors && userErrors.length > 0) {
-                console.warn('Erreurs lors de la publication:', userErrors);
-              } else {
-                console.log('Collection publiée avec succès !');
-              }
-            }
-          } else {
-            console.warn('Erreur HTTP lors de la publication:', publishResponse.status);
-          }
-        } catch (publishError) {
-          console.warn('Erreur lors de la publication:', publishError.message);
-        }
-        
-        return res.status(200).json({
-          success: true,
-          message: `Collection "${companyName}" créée et publication tentée`,
-          collection_id: collection.id,
-          collection_handle: collection.handle,
-          tag_condition: tagCondition,
-          customer_email: customer.email,
-          method: 'GraphQL'
-        });
-      }
+      // Si REST échoue, fallback vers GraphQL
+      console.log('🔄 Fallback vers GraphQL...');
+      return await createWithGraphQL(companyName, tagCondition, SHOPIFY_SHOP_DOMAIN, SHOPIFY_ACCESS_TOKEN, customer, res);
     }
 
-    // Si on arrive ici, il y a eu un problème
-    console.error('Réponse GraphQL inattendue:', result);
+    const result = await shopifyResponse.json();
+    console.log('✅ Collection REST créée:', result);
+
+    if (result.smart_collection) {
+      const collection = result.smart_collection;
+      
+      return res.status(200).json({
+        success: true,
+        message: `Collection "${companyName}" créée et publiée avec succès via REST`,
+        collection_id: collection.id,
+        collection_handle: collection.handle,
+        collection_url: `https://studio.lefagoteur.com/collections/${collection.handle}`,
+        tag_condition: tagCondition,
+        customer_email: customer.email,
+        method: 'REST API',
+        published: collection.published_at ? true : false,
+        published_at: collection.published_at
+      });
+    }
+
     return res.status(500).json({
-      error: 'Réponse GraphQL inattendue',
+      error: 'Réponse REST inattendue',
       response: result
     });
 
@@ -214,4 +116,85 @@ export default async function handler(req, res) {
       details: error.message 
     });
   }
+}
+
+// Fonction fallback GraphQL
+async function createWithGraphQL(companyName, tagCondition, domain, token, customer, res) {
+  const graphqlQuery = {
+    query: `
+      mutation collectionCreate($input: CollectionInput!) {
+        collectionCreate(input: $input) {
+          collection {
+            id
+            handle
+            title
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `,
+    variables: {
+      input: {
+        title: companyName,
+        ruleSet: {
+          appliedDisjunctively: false,
+          rules: [
+            {
+              column: "TAG",
+              relation: "EQUALS",
+              condition: tagCondition
+            }
+          ]
+        }
+      }
+    }
+  };
+
+  console.log('Fallback GraphQL:', JSON.stringify(graphqlQuery, null, 2));
+
+  const shopifyResponse = await fetch(
+    `https://${domain}/admin/api/2025-01/graphql.json`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': token
+      },
+      body: JSON.stringify(graphqlQuery)
+    }
+  );
+
+  if (!shopifyResponse.ok) {
+    const errorText = await shopifyResponse.text();
+    return res.status(400).json({ 
+      error: 'Erreur lors de la création de la collection (REST et GraphQL)',
+      details: errorText
+    });
+  }
+
+  const result = await shopifyResponse.json();
+
+  if (result.data && result.data.collectionCreate && result.data.collectionCreate.collection) {
+    const collection = result.data.collectionCreate.collection;
+    
+    return res.status(200).json({
+      success: true,
+      message: `Collection "${companyName}" créée via GraphQL (publication manuelle requise)`,
+      collection_id: collection.id,
+      collection_handle: collection.handle,
+      collection_url: `https://studio.lefagoteur.com/collections/${collection.handle}`,
+      tag_condition: tagCondition,
+      customer_email: customer.email,
+      method: 'GraphQL Fallback',
+      note: 'Publication manuelle requise dans l\'admin'
+    });
+  }
+
+  return res.status(500).json({
+    error: 'Échec REST et GraphQL',
+    response: result
+  });
 }
