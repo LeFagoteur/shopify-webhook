@@ -40,72 +40,127 @@ export default async function handler(req, res) {
       });
     }
 
+    // ✨ NOUVEAU : Le tag devient le handle de la collection
     const tagCondition = `pro${companyName.toLowerCase().replace(/\s+/g, '-')}`;
+    const collectionHandle = tagCondition; // Le handle = le tag complet !
 
-    // APPROCHE 1: API REST Smart Collection avec publication directe
-    const collectionData = {
-      smart_collection: {
-        title: companyName,
-        rules: [
-          {
-            column: 'tag',
-            relation: 'equals',
-            condition: tagCondition
+    console.log('Tag créé:', tagCondition);
+    console.log('Handle de collection:', collectionHandle);
+
+    // ✨ ÉTAPE 1 : Vérifier si la collection existe déjà
+    const existingCollection = await checkCollectionExists(collectionHandle, SHOPIFY_SHOP_DOMAIN, SHOPIFY_ACCESS_TOKEN);
+    
+    if (existingCollection) {
+      console.log('✅ Collection existante trouvée:', existingCollection.id);
+      return res.status(200).json({
+        success: true,
+        message: `Collection "${companyName}" existe déjà, pas de création`,
+        collection_id: existingCollection.id,
+        collection_handle: existingCollection.handle,
+        collection_url: `https://studio.lefagoteur.com/collections/${existingCollection.handle}`,
+        tag_condition: tagCondition,
+        customer_email: customer.email,
+        action: 'existing_collection_reused'
+      });
+    }
+
+    // ✨ ÉTAPE 2 : Créer la collection avec le handle personnalisé (via GraphQL)
+    const graphqlQuery = {
+      query: `
+        mutation collectionCreate($input: CollectionInput!) {
+          collectionCreate(input: $input) {
+            collection {
+              id
+              handle
+              title
+              publishedOnCurrentPublication
+            }
+            userErrors {
+              field
+              message
+            }
           }
-        ],
-        published: true,  // Publication directe !
-        published_scope: 'web'  // Publier sur le web
+        }
+      `,
+      variables: {
+        input: {
+          title: companyName,  // Titre propre : "La Fabrik"
+          handle: collectionHandle,  // Handle sécurisé : "prola-fabrik"
+          ruleSet: {
+            appliedDisjunctively: false,
+            rules: [
+              {
+                column: "TAG",
+                relation: "EQUALS",
+                condition: tagCondition  // Condition : "prola-fabrik"
+              }
+            ]
+          },
+          // Publication directe
+          publications: [
+            {
+              publicationId: "gid://shopify/Publication/300101337352"
+            }
+          ]
+        }
       }
     };
 
-    console.log('Création collection REST avec publication:', JSON.stringify(collectionData, null, 2));
+    console.log('Création collection GraphQL:', JSON.stringify(graphqlQuery, null, 2));
 
-    // Appel à l'API REST Smart Collections
     const shopifyResponse = await fetch(
-      `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/smart_collections.json`,
+      `https://${SHOPIFY_SHOP_DOMAIN}/admin/api/2025-01/graphql.json`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
         },
-        body: JSON.stringify(collectionData)
+        body: JSON.stringify(graphqlQuery)
       }
     );
 
-    console.log('Status de la réponse Shopify:', shopifyResponse.status);
-
     if (!shopifyResponse.ok) {
       const errorText = await shopifyResponse.text();
-      console.error('Erreur Shopify (status:', shopifyResponse.status, '):', errorText);
-      
-      // Si REST échoue, fallback vers GraphQL
-      console.log('🔄 Fallback vers GraphQL...');
-      return await createWithGraphQL(companyName, tagCondition, SHOPIFY_SHOP_DOMAIN, SHOPIFY_ACCESS_TOKEN, customer, res);
+      console.error('Erreur Shopify GraphQL:', errorText);
+      return res.status(400).json({ 
+        error: 'Erreur lors de la création de la collection',
+        details: errorText
+      });
     }
 
     const result = await shopifyResponse.json();
-    console.log('✅ Collection REST créée:', result);
 
-    if (result.smart_collection) {
-      const collection = result.smart_collection;
+    // Vérifier les erreurs GraphQL
+    if (result.data?.collectionCreate?.userErrors?.length > 0) {
+      console.error('Erreurs GraphQL:', result.data.collectionCreate.userErrors);
+      return res.status(400).json({
+        error: 'Erreurs lors de la création',
+        userErrors: result.data.collectionCreate.userErrors
+      });
+    }
+
+    if (result.data?.collectionCreate?.collection) {
+      const collection = result.data.collectionCreate.collection;
       
+      console.log('✅ Collection créée:', collection);
+
       return res.status(200).json({
         success: true,
-        message: `Collection "${companyName}" créée et publiée avec succès via REST`,
+        message: `Collection "${companyName}" créée avec succès`,
         collection_id: collection.id,
         collection_handle: collection.handle,
         collection_url: `https://studio.lefagoteur.com/collections/${collection.handle}`,
         tag_condition: tagCondition,
         customer_email: customer.email,
-        method: 'REST API',
-        published: collection.published_at ? true : false,
-        published_at: collection.published_at
+        method: 'GraphQL',
+        published: collection.publishedOnCurrentPublication,
+        action: 'new_collection_created'
       });
     }
 
     return res.status(500).json({
-      error: 'Réponse REST inattendue',
+      error: 'Réponse GraphQL inattendue',
       response: result
     });
 
@@ -118,83 +173,56 @@ export default async function handler(req, res) {
   }
 }
 
-// Fonction fallback GraphQL
-async function createWithGraphQL(companyName, tagCondition, domain, token, customer, res) {
-  const graphqlQuery = {
-    query: `
-      mutation collectionCreate($input: CollectionInput!) {
-        collectionCreate(input: $input) {
-          collection {
+// ✨ Fonction pour vérifier si une collection existe déjà
+async function checkCollectionExists(handle, domain, token) {
+  try {
+    const graphqlQuery = {
+      query: `
+        query getCollectionByHandle($handle: String!) {
+          collectionByHandle(handle: $handle) {
             id
             handle
             title
-          }
-          userErrors {
-            field
-            message
+            publishedOnCurrentPublication
           }
         }
+      `,
+      variables: {
+        handle: handle
       }
-    `,
-    variables: {
-      input: {
-        title: companyName,
-        ruleSet: {
-          appliedDisjunctively: false,
-          rules: [
-            {
-              column: "TAG",
-              relation: "EQUALS",
-              condition: tagCondition
-            }
-          ]
-        }
+    };
+
+    console.log('Vérification collection existante avec handle:', handle);
+
+    const response = await fetch(
+      `https://${domain}/admin/api/2025-01/graphql.json`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': token
+        },
+        body: JSON.stringify(graphqlQuery)
       }
+    );
+
+    if (!response.ok) {
+      console.error('Erreur lors de la vérification:', response.status);
+      return null;
     }
-  };
 
-  console.log('Fallback GraphQL:', JSON.stringify(graphqlQuery, null, 2));
-
-  const shopifyResponse = await fetch(
-    `https://${domain}/admin/api/2025-01/graphql.json`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': token
-      },
-      body: JSON.stringify(graphqlQuery)
-    }
-  );
-
-  if (!shopifyResponse.ok) {
-    const errorText = await shopifyResponse.text();
-    return res.status(400).json({ 
-      error: 'Erreur lors de la création de la collection (REST et GraphQL)',
-      details: errorText
-    });
-  }
-
-  const result = await shopifyResponse.json();
-
-  if (result.data && result.data.collectionCreate && result.data.collectionCreate.collection) {
-    const collection = result.data.collectionCreate.collection;
+    const result = await response.json();
     
-    return res.status(200).json({
-      success: true,
-      message: `Collection "${companyName}" créée via GraphQL (publication manuelle requise)`,
-      collection_id: collection.id,
-      collection_handle: collection.handle,
-      collection_url: `https://studio.lefagoteur.com/collections/${collection.handle}`,
-      tag_condition: tagCondition,
-      customer_email: customer.email,
-      method: 'GraphQL Fallback',
-      note: 'Publication manuelle requise dans l\'admin'
-    });
-  }
+    if (result.data?.collectionByHandle) {
+      console.log('Collection trouvée:', result.data.collectionByHandle);
+      return result.data.collectionByHandle;
+    }
 
-  return res.status(500).json({
-    error: 'Échec REST et GraphQL',
-    response: result
-  });
+    console.log('Aucune collection trouvée avec ce handle');
+    return null;
+
+  } catch (error) {
+    console.error('Erreur checkCollectionExists:', error);
+    return null;
+  }
 }
