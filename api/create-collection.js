@@ -40,7 +40,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // ✨ NOUVEAU : Le tag devient le handle de la collection
+    // ✨ Le tag devient le handle de la collection
     const tagCondition = `pro${companyName.toLowerCase().replace(/\s+/g, '-')}`;
     const collectionHandle = tagCondition; // Le handle = le tag complet !
 
@@ -96,7 +96,7 @@ export default async function handler(req, res) {
               }
             ]
           },
-          // Publication directe
+          // Publication directe sur Online Store
           publications: [
             {
               publicationId: "gid://shopify/Publication/300101337352"
